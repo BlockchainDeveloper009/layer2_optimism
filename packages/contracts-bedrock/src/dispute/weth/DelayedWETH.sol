@@ -10,6 +10,7 @@ import { WETH98 } from "src/dispute/weth/WETH98.sol";
 
 import { SuperchainConfig } from "src/L1/SuperchainConfig.sol";
 
+/// @custom:proxied true
 /// @title DelayedWETH
 /// @notice DelayedWETH is an extension to WETH9 that allows for delayed withdrawals. Accounts must trigger an unlock
 ///         function before they can withdraw WETH. Accounts must trigger unlock by specifying a sub-account and an

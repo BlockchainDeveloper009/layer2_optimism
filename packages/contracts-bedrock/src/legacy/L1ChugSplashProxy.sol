@@ -8,7 +8,7 @@ interface IL1ChugSplashDeployer {
     function isUpgrading() external view returns (bool);
 }
 
-/// @custom:legacy
+/// @custom:legacy true
 /// @title L1ChugSplashProxy
 /// @notice Basic ChugSplash proxy contract for L1. Very close to being a normal proxy but has added
 ///         functions `setCode` and `setStorage` for changing the code or storage of the contract.
