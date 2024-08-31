@@ -1,4 +1,4 @@
-package interopgen
+package deployers
 
 import (
 	"fmt"

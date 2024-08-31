@@ -549,3 +549,17 @@ func (h *Host) Label(addr common.Address, label string) {
 	h.log.Debug("labeling", "addr", addr, "label", label)
 	h.labels[addr] = label
 }
+
+// NewScriptAddress creates a new address for the ScriptDeployer account, and bumps the nonce.
+func (h *Host) NewScriptAddress() common.Address {
+	deployer := ScriptDeployer
+	deployNonce := h.state.GetNonce(deployer)
+	// compute address of script contract to be deployed
+	addr := crypto.CreateAddress(deployer, deployNonce)
+	h.state.SetNonce(deployer, deployNonce+1)
+	return addr
+}
+
+func (h *Host) ChainID() *big.Int {
+	return new(big.Int).Set(h.chainCfg.ChainID)
+}

@@ -3,6 +3,7 @@ package interopgen
 import (
 	"errors"
 	"fmt"
+	"github.com/ethereum-optimism/optimism/op-chain-ops/interopgen/deployers"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -17,14 +18,17 @@ import (
 )
 
 var (
-	// address(uint160(uint256(keccak256(abi.encode("optimism.deployconfig"))))) - not a simple hash, due to ABI encode
-	deployConfigAddr       = common.HexToAddress("0x9568d36E291c2C4c34fa5593fcE73715abEf6F9c")
-	deploymentRegistryAddr = common.Address(crypto.Keccak256([]byte("optimism.deploymentregistry"))[12:])
 
 	// sysGenesisDeployer is used as tx.origin/msg.sender on system genesis script calls.
 	// At the end we verify none of the deployed contracts persist (there may be temporary ones, to insert bytecode).
 	sysGenesisDeployer = common.Address(crypto.Keccak256([]byte("System genesis deployer"))[12:])
 )
+
+// OPSM changes:
+// - scripts/DeploySuperchain
+// - scripts/DeployImplementations
+// - scripts/DeployOPChain
+//
 
 func Deploy(logger log.Logger, fa *foundry.ArtifactsFS, srcFS *foundry.SourceMapFS, cfg *WorldConfig) (*WorldDeployment, *WorldOutput, error) {
 	// Sanity check all L2s have consistent chain ID and attach to the same L1
@@ -108,9 +112,6 @@ func createL1(logger log.Logger, fa *foundry.ArtifactsFS, srcFS *foundry.SourceM
 		BlobHashes:   nil,
 	}
 	l1Host := script.NewHost(logger.New("role", "l1", "chain", cfg.ChainID), fa, srcFS, l1Context)
-	l1Host.SetEnvVar("DISABLE_DEPLOYMENT_REGISTRY", "true")           // we override it with a precompile
-	l1Host.SetEnvVar("SUPERCHAIN_IMPLEMENTATIONS_WORKAROUND", "true") // FP dependency issue workaround
-	l1Host.SetEnvVar("EXPERIMENTAL_SKIP_L2OUTPUTORACLE", "true")      // no more L2OutputOracle support
 	return l1Host
 }
 
@@ -136,25 +137,7 @@ func createL2(logger log.Logger, fa *foundry.ArtifactsFS, srcFS *foundry.SourceM
 // initialL1 deploys basics such as preinstalls to L1  (incl. EIP-4788)
 func initialL1(l1Host *script.Host, cfg *L1Config) (*L1Deployment, error) {
 	l1Host.SetTxOrigin(sysGenesisDeployer)
-	// Init L2Genesis script. Yes, this is L1. Hack to deploy all preinstalls.
-	l2GenesisScript, cleanupL2Genesis, err := script.WithScript[L2GenesisScript](l1Host, "L2Genesis.s.sol", "L2Genesis")
-	if err != nil {
-		return nil, fmt.Errorf("failed to load L2Genesis script for L1 preinstalls work: %w", err)
-	}
-	defer cleanupL2Genesis()
 
-	// We need the Chain ID for the preinstalls setter to work
-	deployConfig := &genesis.DeployConfig{}
-	deployConfig.L2ChainID = cfg.ChainID.Uint64()
-	cleanupDeployConfig, err := script.WithPrecompileAtAddress[*genesis.DeployConfig](l1Host, deployConfigAddr, deployConfig, script.WithFieldsOnly[*genesis.DeployConfig])
-	if err != nil {
-		return nil, fmt.Errorf("failed to insert DeployConfig precompile: %w", err)
-	}
-	defer cleanupDeployConfig()
-
-	if err := l2GenesisScript.SetPreinstalls(); err != nil {
-		return nil, fmt.Errorf("failed to set preinstalls in L1: %w", err)
-	}
 	return &L1Deployment{
 		// any contracts we need to register here?
 	}, nil
@@ -163,65 +146,53 @@ func initialL1(l1Host *script.Host, cfg *L1Config) (*L1Deployment, error) {
 func deploySuperchainToL1(l1Host *script.Host, superCfg *SuperchainConfig) (*SuperchainDeployment, error) {
 	l1Host.SetTxOrigin(superCfg.Deployer)
 
-	deploymentRegistry := &DeploymentRegistryPrecompile{
-		Deployments: map[string]common.Address{},
-	}
-	cleanupDeploymentRegistry, err := script.WithPrecompileAtAddress[*DeploymentRegistryPrecompile](
-		l1Host, deploymentRegistryAddr, deploymentRegistry)
+	superDeployment, err := deployers.DeploySuperchain(l1Host, &deployers.DeploySuperchainInput{
+		ProxyAdminOwner:            superCfg.ProxyAdminOwner,
+		ProtocolVersionsOwner:      superCfg.FinalSystemOwner,
+		Guardian:                   superCfg.SuperchainConfigGuardian,
+		Paused:                     false, // TODO
+		RequiredProtocolVersion:    superCfg.RequiredProtocolVersion,
+		RecommendedProtocolVersion: superCfg.RecommendedProtocolVersion,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to insert DeploymentRegistry precompile: %w", err)
+		return nil, fmt.Errorf("failed to deploy Superchain contracts: %w", err)
 	}
-	defer cleanupDeploymentRegistry()
 
-	l1DeployScript, cleanupL1Deploy, err := script.WithScript[DeployScript](l1Host, "Deploy.s.sol", "Deploy")
+	implementationsDeployment, err := deployers.DeployImplementations(l1Host, &deployers.DeployImplementationsInput{
+		WithdrawalDelaySeconds:          nil, // TODO
+		MinProposalSizeBytes:            nil, // TODO
+		ChallengePeriodSeconds:          nil, // TODO
+		ProofMaturityDelaySeconds:       nil, // TODO
+		DisputeGameFinalityDelaySeconds: nil, // TODO
+		Release:                         "",  // TODO
+		SuperchainConfigProxy:           superDeployment.SuperchainConfigProxy,
+		ProtocolVersionsProxy:           superDeployment.ProtocolVersionsProxy,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to load Deploy script: %w", err)
+		return nil, fmt.Errorf("failed to deploy Implementations contracts: %w", err)
 	}
-	defer cleanupL1Deploy()
-
-	deployConfig := &genesis.DeployConfig{}
-	deployConfig.ProxyAdminOwner = superCfg.ProxyAdminOwner
-	deployConfig.SuperchainL1DeployConfig = superCfg.SuperchainL1DeployConfig
-	deployConfig.FinalSystemOwner = superCfg.FinalSystemOwner
-	cleanupDeployConfig, err := script.WithPrecompileAtAddress[*genesis.DeployConfig](l1Host, deployConfigAddr, deployConfig, script.WithFieldsOnly[*genesis.DeployConfig])
-	if err != nil {
-		return nil, fmt.Errorf("failed to insert DeployConfig precompile: %w", err)
-	}
-	defer cleanupDeployConfig()
-
-	if err := l1DeployScript.DeploySafe("SystemOwnerSafe"); err != nil {
-		return nil, fmt.Errorf("failed to deploy superchain Safe: %w", err)
-	}
-	if err := l1DeployScript.SetupSuperchain(); err != nil {
-		return nil, fmt.Errorf("failed to deploy superchain core contracts: %w", err)
-	}
-
-	if err := l1DeployScript.DeployImplementations(); err != nil {
-		return nil, fmt.Errorf("failed to deploy superchain shared implementations: %w", err)
-	}
-
-	// TODO it still also deploys the legacy OptimismPortal implementation contract
 
 	// Collect deployment addresses
 	// This could all be automatic once we have better output-contract typing/scripting
 	return &SuperchainDeployment{
 		Implementations: Implementations{
-			L1CrossDomainMessenger:       deploymentRegistry.GetAddress("L1CrossDomainMessenger"),
-			L1ERC721Bridge:               deploymentRegistry.GetAddress("L1ERC721Bridge"),
-			L1StandardBridge:             deploymentRegistry.GetAddress("L1StandardBridge"),
-			L2OutputOracle:               deploymentRegistry.GetAddress("L2OutputOracle"),
-			OptimismMintableERC20Factory: deploymentRegistry.GetAddress("OptimismMintableERC20Factory"),
-			OptimismPortal2:              deploymentRegistry.GetAddress("OptimismPortal2"),
-			SystemConfig:                 deploymentRegistry.GetAddress("SystemConfig"),
-			DisputeGameFactory:           deploymentRegistry.GetAddress("DisputeGameFactory"),
+			L1CrossDomainMessenger:       implementationsDeployment.L1CrossDomainMessengerImpl,
+			L1ERC721Bridge:               implementationsDeployment.L1ERC721BridgeImpl,
+			L1StandardBridge:             implementationsDeployment.L1StandardBridgeImpl,
+			L2OutputOracle:               common.Address{}, // TODO
+			OptimismMintableERC20Factory: implementationsDeployment.OptimismMintableERC20FactoryImpl,
+			OptimismPortal2:              implementationsDeployment.OptimismPortalImpl, // TODO
+			SystemConfig:                 implementationsDeployment.SystemConfigImpl,
+			DisputeGameFactory:           common.Address{}, // TODO
+			// More implementations
 		},
-		SystemOwnerSafe:       deploymentRegistry.GetAddress("SystemOwnerSafe"),
-		AddressManager:        deploymentRegistry.GetAddress("AddressManager"),
-		ProxyAdmin:            deploymentRegistry.GetAddress("ProxyAdmin"),
-		ProtocolVersions:      deploymentRegistry.GetAddress("ProtocolVersions"),
-		ProtocolVersionsProxy: deploymentRegistry.GetAddress("ProtocolVersionsProxy"),
-		SuperchainConfig:      deploymentRegistry.GetAddress("SuperchainConfig"),
-		SuperchainConfigProxy: deploymentRegistry.GetAddress("SuperchainConfigProxy"),
+		SystemOwnerSafe:       common.Address{}, // TODO
+		AddressManager:        common.Address{}, // TODO
+		ProxyAdmin:            superDeployment.SuperchainProxyAdmin,
+		ProtocolVersions:      superDeployment.ProtocolVersionsImpl,
+		ProtocolVersionsProxy: superDeployment.ProtocolVersionsProxy,
+		SuperchainConfig:      superDeployment.SuperchainConfigImpl,
+		SuperchainConfigProxy: superDeployment.SuperchainConfigProxy,
 	}, nil
 }
 
@@ -232,79 +203,20 @@ func deployL2ToL1(l1Host *script.Host, superCfg *SuperchainConfig, superDeployme
 
 	l1Host.SetTxOrigin(cfg.Deployer)
 
-	deploymentRegistry := &DeploymentRegistryPrecompile{
-		Deployments: map[string]common.Address{
-			"L1CrossDomainMessenger":       superDeployment.L1CrossDomainMessenger,
-			"L1ERC721Bridge":               superDeployment.L1ERC721Bridge,
-			"L1StandardBridge":             superDeployment.L1StandardBridge,
-			"L2OutputOracle":               superDeployment.L2OutputOracle,
-			"OptimismMintableERC20Factory": superDeployment.OptimismMintableERC20Factory,
-			"OptimismPortal2":              superDeployment.OptimismPortal2,
-			"SystemConfig":                 superDeployment.SystemConfig,
-			"DisputeGameFactory":           superDeployment.DisputeGameFactory,
-			// Deploy script shouldn't need these, but still loads the addresses
-			"SuperchainConfigProxy": superDeployment.SuperchainConfigProxy,
-			"ProtocolVersionsProxy": superDeployment.ProtocolVersionsProxy,
-			// Have to deal with unused address for global proxies struct
-			"L2OutputOracleProxy": {},
-		},
-	}
-	cleanupDeploymentRegistry, err := script.WithPrecompileAtAddress[*DeploymentRegistryPrecompile](
-		l1Host, deploymentRegistryAddr, deploymentRegistry)
+	output, err := deployers.DeployOPChain(l1Host, &deployers.DeployOPChainInput{
+		OpChainProxyAdminOwner: cfg.ProxyAdminOwner,
+		SystemConfigOwner:      cfg.FinalSystemOwner, // TODO
+		Batcher:                cfg.BatchSenderAddress,
+		UnsafeBlockSigner:      cfg.P2PSequencerAddress,
+		Proposer:               common.Address{}, // TODO
+		Challenger:             common.Address{}, // TODO
+		BasefeeScalar:          cfg.GasPriceOracleBaseFeeScalar,
+		BlobBaseFeeScalar:      cfg.GasPriceOracleBlobBaseFeeScalar,
+		L2ChainId:              new(big.Int).SetUint64(cfg.L2ChainID),
+		Opsm:                   common.Address{}, // TODO
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to insert DeploymentRegistry precompile: %w", err)
-	}
-	defer cleanupDeploymentRegistry()
-
-	l1DeployScript, cleanupL1Deploy, err := script.WithScript[DeployScript](l1Host, "Deploy.s.sol", "Deploy")
-	if err != nil {
-		return nil, fmt.Errorf("failed to load Deploy script: %w", err)
-	}
-	defer cleanupL1Deploy()
-
-	deployConfig := &genesis.DeployConfig{
-		L2InitializationConfig: cfg.L2InitializationConfig,
-		FaultProofDeployConfig: cfg.FaultProofDeployConfig,
-	}
-	deployConfig.SuperchainConfigGuardian = superCfg.SuperchainConfigGuardian
-	cleanupDeployConfig, err := script.WithPrecompileAtAddress[*genesis.DeployConfig](l1Host, deployConfigAddr, deployConfig, script.WithFieldsOnly[*genesis.DeployConfig])
-	if err != nil {
-		return nil, fmt.Errorf("failed to insert DeployConfig precompile: %w", err)
-	}
-	defer cleanupDeployConfig()
-
-	if err := l1DeployScript.DeploySafe("SystemOwnerSafe"); err != nil {
-		return nil, fmt.Errorf("failed to deploy L2 chain system owner Safe: %w", err)
-	}
-
-	if err := l1DeployScript.DeployAddressManager(); err != nil {
-		return nil, fmt.Errorf("failed to deploy L2 chain AddressManager: %w", err)
-	}
-	if err := l1DeployScript.DeployProxyAdmin(); err != nil {
-		return nil, fmt.Errorf("failed to deploy L2 chain ProxyAdmin: %w", err)
-	}
-	if err := l1DeployScript.TransferProxyAdminOwnership(); err != nil {
-		return nil, fmt.Errorf("failed to transfer L2 chain ownership of ProxyAdmin: %w", err)
-	}
-
-	// Make deployments
-	if err := l1DeployScript.DeployProxies(); err != nil {
-		return nil, fmt.Errorf("failed to deploy L2 chain proxies: %w", err)
-	}
-
-	// Work-around: contract uses an immutable var, that depends on deploy-config, breaking MCP.
-	if err := l1DeployScript.DeployDelayedWETH(); err != nil {
-		return nil, fmt.Errorf("failed to deploy DelayedWETH implementation: %w", err)
-	}
-
-	// Only now that we have the DisputeGameFactoryProxy can we deploy the AnchorStateRegistry implementation.
-	if err := l1DeployScript.DeployAnchorStateRegistry(); err != nil {
-		return nil, fmt.Errorf("failed to deploy AnchorStateRegistry registry: %w", err)
-	}
-
-	// OptimismPortalProxy2 is the same as the original OptimismPortalProxy
-	if err := l1DeployScript.InitializeImplementations(); err != nil {
-		return nil, fmt.Errorf("failed to initialize L2 implementations: %w", err)
+		return nil, fmt.Errorf("failed to deploy L2 OP chain: %w", err)
 	}
 
 	// TODO we still need to attach the game-types to the dispute game factory
@@ -315,57 +227,35 @@ func deployL2ToL1(l1Host *script.Host, superCfg *SuperchainConfig, superDeployme
 	// Collect deployment addresses
 	return &L2Deployment{
 		L2Proxies: L2Proxies{
-			L1CrossDomainMessengerProxy:       deploymentRegistry.GetAddress("L1CrossDomainMessengerProxy"),
-			L1ERC721BridgeProxy:               deploymentRegistry.GetAddress("L1ERC721BridgeProxy"),
-			L1StandardBridgeProxy:             deploymentRegistry.GetAddress("L1StandardBridgeProxy"),
-			OptimismMintableERC20FactoryProxy: deploymentRegistry.GetAddress("OptimismMintableERC20FactoryProxy"),
-			OptimismPortalProxy:               deploymentRegistry.GetAddress("OptimismPortalProxy"),
-			SystemConfigProxy:                 deploymentRegistry.GetAddress("SystemConfigProxy"),
-			AnchorStateRegistryProxy:          deploymentRegistry.GetAddress("AnchorStateRegistryProxy"),
-			DelayedWETHProxy:                  deploymentRegistry.GetAddress("DelayedWETHProxy"),
-			DisputeGameFactoryProxy:           deploymentRegistry.GetAddress("DisputeGameFactoryProxy"),
+			L1CrossDomainMessengerProxy:       output.L1CrossDomainMessengerProxy,
+			L1ERC721BridgeProxy:               output.L1ERC721BridgeProxy,
+			L1StandardBridgeProxy:             output.L1StandardBridgeProxy,
+			OptimismMintableERC20FactoryProxy: output.OptimismMintableERC20FactoryProxy,
+			OptimismPortalProxy:               output.OptimismPortalProxy,
+			SystemConfigProxy:                 output.SystemConfigProxy,
+			AnchorStateRegistryProxy:          output.AnchorStateRegistryProxy,
+			DelayedWETHProxy:                  output.DelayedWETHPermissionedGameProxy, // TODO
+			DisputeGameFactoryProxy:           output.DisputeGameFactoryProxy,
 			// special one: depends on DisputeGameFactoryProxy
-			AnchorStateRegistry: deploymentRegistry.GetAddress("DisputeGameFactoryProxy"),
+			AnchorStateRegistry: common.Address{}, // TODO broken design in OPSM
 			// Another special one, depends on L2 deploy config
-			DelayedWETH: deploymentRegistry.GetAddress("DelayedWETH"),
+			DelayedWETH: common.Address{}, // TODO non-proxy contract
 		},
-		ProxyAdmin:      deploymentRegistry.GetAddress("ProxyAdmin"),
-		SystemOwnerSafe: deploymentRegistry.GetAddress("SystemOwnerSafe"),
+		ProxyAdmin:      output.OpChainProxyAdmin,
+		SystemOwnerSafe: common.Address{}, // TODO
 	}, nil
 }
 
 func genesisL2(l2Host *script.Host, cfg *L2Config, deployment *L2Deployment) error {
-	deploymentRegistry := &DeploymentRegistryPrecompile{
-		Deployments: map[string]common.Address{
-			"L1CrossDomainMessengerProxy": deployment.L1CrossDomainMessengerProxy,
-			"L1StandardBridgeProxy":       deployment.L1StandardBridgeProxy,
-			"L1ERC721BridgeProxy":         deployment.L1ERC721BridgeProxy,
-		},
-	}
-	cleanupDeploymentRegistry, err := script.WithPrecompileAtAddress[*DeploymentRegistryPrecompile](
-		l2Host, deploymentRegistryAddr, deploymentRegistry)
-	if err != nil {
-		return fmt.Errorf("failed to insert DeploymentRegistry precompile: %w", err)
-	}
-	defer cleanupDeploymentRegistry()
-
-	deployConfig := &genesis.DeployConfig{
-		L2InitializationConfig: cfg.L2InitializationConfig,
-	}
-	cleanupDeployConfig, err := script.WithPrecompileAtAddress[*genesis.DeployConfig](l2Host, deployConfigAddr, deployConfig, script.WithFieldsOnly[*genesis.DeployConfig])
-	if err != nil {
-		return fmt.Errorf("failed to insert DeployConfig precompile: %w", err)
-	}
-	defer cleanupDeployConfig()
-
-	l2GenesisScript, cleanupL2Genesis, err := script.WithScript[L2GenesisScript](l2Host, "L2Genesis.s.sol", "L2Genesis")
-	if err != nil {
-		return fmt.Errorf("failed to load L2Genesis script: %w", err)
-	}
-	defer cleanupL2Genesis()
-
-	if err := l2GenesisScript.RunWithEnv(); err != nil {
-		return fmt.Errorf("failed to run through L2 genesis: %w", err)
+	if err := deployers.L2Genesis(l2Host, &deployers.L2GenesisInput{
+		L1Deployments: struct {
+			L1CrossDomainMessengerProxy common.Address
+			L1StandardBridgeProxy       common.Address
+			L1ERC721BridgeProxy         common.Address
+		}{},
+		L2Config: genesis.L2InitializationConfig{}, // TODO
+	}); err != nil {
+		return fmt.Errorf("Failed L2 genesis: %w", err)
 	}
 
 	return nil
