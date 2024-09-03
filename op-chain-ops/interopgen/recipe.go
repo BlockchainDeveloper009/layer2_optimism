@@ -65,6 +65,7 @@ func (r *InteropDevRecipe) Build(addrs devkeys.Addresses) (*WorldConfig, error) 
 		FinalSystemOwner: finalSystemOwner,
 		ProxyAdminOwner:  superchainProxyAdmin,
 		Deployer:         superchainDeployer,
+		UseInterop:       true,
 		SuperchainL1DeployConfig: genesis.SuperchainL1DeployConfig{
 			RequiredProtocolVersion:    params.OPStackSupport,
 			RecommendedProtocolVersion: params.OPStackSupport,

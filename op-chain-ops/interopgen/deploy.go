@@ -24,12 +24,6 @@ var (
 	sysGenesisDeployer = common.Address(crypto.Keccak256([]byte("System genesis deployer"))[12:])
 )
 
-// OPSM changes:
-// - scripts/DeploySuperchain
-// - scripts/DeployImplementations
-// - scripts/DeployOPChain
-//
-
 func Deploy(logger log.Logger, fa *foundry.ArtifactsFS, srcFS *foundry.SourceMapFS, cfg *WorldConfig) (*WorldDeployment, *WorldOutput, error) {
 	// Sanity check all L2s have consistent chain ID and attach to the same L1
 	for id, l2Cfg := range cfg.L2s {
@@ -167,6 +161,7 @@ func deploySuperchainToL1(l1Host *script.Host, superCfg *SuperchainConfig) (*Sup
 		Release:                         "",  // TODO
 		SuperchainConfigProxy:           superDeployment.SuperchainConfigProxy,
 		ProtocolVersionsProxy:           superDeployment.ProtocolVersionsProxy,
+		UseInterop:                      superCfg.UseInterop,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to deploy Implementations contracts: %w", err)
@@ -248,14 +243,14 @@ func deployL2ToL1(l1Host *script.Host, superCfg *SuperchainConfig, superDeployme
 
 func genesisL2(l2Host *script.Host, cfg *L2Config, deployment *L2Deployment) error {
 	if err := deployers.L2Genesis(l2Host, &deployers.L2GenesisInput{
-		L1Deployments: struct {
-			L1CrossDomainMessengerProxy common.Address
-			L1StandardBridgeProxy       common.Address
-			L1ERC721BridgeProxy         common.Address
-		}{},
-		L2Config: genesis.L2InitializationConfig{}, // TODO
+		L1Deployments: deployers.L1Deployments{
+			L1CrossDomainMessengerProxy: deployment.L1CrossDomainMessengerProxy,
+			L1StandardBridgeProxy:       deployment.L1StandardBridgeProxy,
+			L1ERC721BridgeProxy:         deployment.L1ERC721BridgeProxy,
+		},
+		L2Config: cfg.L2InitializationConfig,
 	}); err != nil {
-		return fmt.Errorf("Failed L2 genesis: %w", err)
+		return fmt.Errorf("failed L2 genesis: %w", err)
 	}
 
 	return nil

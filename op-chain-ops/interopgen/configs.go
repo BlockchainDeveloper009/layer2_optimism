@@ -31,6 +31,8 @@ type SuperchainConfig struct {
 	FinalSystemOwner common.Address
 	ProxyAdminOwner  common.Address
 
+	UseInterop bool // to deploy Interop implementation contracts, instead of the regular ones.
+
 	genesis.SuperchainL1DeployConfig
 }
 

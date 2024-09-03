@@ -16,13 +16,15 @@ var (
 	deploymentRegistryAddr = common.Address(crypto.Keccak256([]byte("optimism.deploymentregistry"))[12:])
 )
 
+type L1Deployments struct {
+	L1CrossDomainMessengerProxy common.Address
+	L1StandardBridgeProxy       common.Address
+	L1ERC721BridgeProxy         common.Address
+}
+
 type L2GenesisInput struct {
-	L1Deployments struct {
-		L1CrossDomainMessengerProxy common.Address
-		L1StandardBridgeProxy       common.Address
-		L1ERC721BridgeProxy         common.Address
-	}
-	L2Config genesis.L2InitializationConfig
+	L1Deployments L1Deployments
+	L2Config      genesis.L2InitializationConfig
 }
 
 type L2GenesisScript struct {
@@ -30,20 +32,9 @@ type L2GenesisScript struct {
 }
 
 func L2Genesis(l2Host *script.Host, input *L2GenesisInput) error {
-	deploymentRegistry := &DeploymentRegistryPrecompile{
-		Deployments: map[string]common.Address{
-			"L1CrossDomainMessengerProxy": input.L1Deployments.L1CrossDomainMessengerProxy,
-			"L1StandardBridgeProxy":       input.L1Deployments.L1StandardBridgeProxy,
-			"L1ERC721BridgeProxy":         input.L1Deployments.L1ERC721BridgeProxy,
-		},
-	}
-
-	cleanupDeploymentRegistry, err := script.WithPrecompileAtAddress[*DeploymentRegistryPrecompile](
-		l2Host, deploymentRegistryAddr, deploymentRegistry)
-	if err != nil {
-		return fmt.Errorf("failed to insert DeploymentRegistry precompile: %w", err)
-	}
-	defer cleanupDeploymentRegistry()
+	l2Host.SetEnvVar("L2GENESIS_L1CrossDomainMessengerProxy", input.L1Deployments.L1CrossDomainMessengerProxy.String())
+	l2Host.SetEnvVar("L2GENESIS_L1StandardBridgeProxy", input.L1Deployments.L1StandardBridgeProxy.String())
+	l2Host.SetEnvVar("L2GENESIS_L1ERC721BridgeProxy", input.L1Deployments.L1ERC721BridgeProxy.String())
 
 	deployConfig := &genesis.DeployConfig{
 		L2InitializationConfig: input.L2Config,

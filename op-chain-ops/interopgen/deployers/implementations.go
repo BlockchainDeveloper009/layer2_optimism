@@ -19,8 +19,7 @@ type DeployImplementationsInput struct {
 	Release               string
 	SuperchainConfigProxy common.Address
 	ProtocolVersionsProxy common.Address
-	// TODO: Interop flag, to deploy OptimismPortalInterop / SystemConfigInterop,
-	// By overriding which deploy script we use
+	UseInterop            bool // if true, deploy Interop implementations
 }
 
 type DeployImplementationsOutput struct {
@@ -57,14 +56,18 @@ func DeployImplementations(l1Host *script.Host, input *DeployImplementationsInpu
 	}
 	defer cleanupOutput()
 
-	deployScript, cleanupDeploy, err := script.WithScript[DeployImplementationsScript](l1Host, "DeployImplementations.s.sol", "DeployImplementations")
+	implContract := "DeployImplementations"
+	if input.UseInterop {
+		implContract = "DeployImplementationsInterop"
+	}
+	deployScript, cleanupDeploy, err := script.WithScript[DeployImplementationsScript](l1Host, "DeployImplementations.s.sol", implContract)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load DeployImplementations script: %w", err)
+		return nil, fmt.Errorf("failed to load %s script: %w", implContract, err)
 	}
 	defer cleanupDeploy()
 
 	if err := deployScript.Run(inputAddr, outputAddr); err != nil {
-		return nil, fmt.Errorf("failed to run DeployImplementations script: %w", err)
+		return nil, fmt.Errorf("failed to run %s script: %w", implContract, err)
 	}
 
 	return output, nil
