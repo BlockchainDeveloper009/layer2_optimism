@@ -3,7 +3,6 @@ package interopgen
 import (
 	"errors"
 	"fmt"
-	"github.com/ethereum-optimism/optimism/op-chain-ops/interopgen/deployers"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -14,11 +13,11 @@ import (
 	"github.com/ethereum-optimism/optimism/op-chain-ops/foundry"
 	"github.com/ethereum-optimism/optimism/op-chain-ops/genesis"
 	"github.com/ethereum-optimism/optimism/op-chain-ops/genesis/beacondeposit"
+	"github.com/ethereum-optimism/optimism/op-chain-ops/interopgen/deployers"
 	"github.com/ethereum-optimism/optimism/op-chain-ops/script"
 )
 
 var (
-
 	// sysGenesisDeployer is used as tx.origin/msg.sender on system genesis script calls.
 	// At the end we verify none of the deployed contracts persist (there may be temporary ones, to insert bytecode).
 	sysGenesisDeployer = common.Address(crypto.Keccak256([]byte("System genesis deployer"))[12:])
@@ -122,9 +121,8 @@ func createL2(logger log.Logger, fa *foundry.ArtifactsFS, srcFS *foundry.SourceM
 		BlobHashes:   nil,
 	}
 	l2Host := script.NewHost(logger.New("role", "l2", "chain", l2Cfg.L2ChainID), fa, srcFS, l2Context)
-	l2Host.SetEnvVar("DISABLE_DEPLOYMENT_REGISTRY", "true") // we override it with a precompile
-	l2Host.SetEnvVar("OUTPUT_MODE", "none")                 // we don't use the cheatcode, but capture the state outside of EVM execution
-	l2Host.SetEnvVar("FORK", "granite")                     // latest fork
+	l2Host.SetEnvVar("OUTPUT_MODE", "none") // we don't use the cheatcode, but capture the state outside of EVM execution
+	l2Host.SetEnvVar("FORK", "granite")     // latest fork
 	return l2Host
 }
 
@@ -142,9 +140,9 @@ func deploySuperchainToL1(l1Host *script.Host, superCfg *SuperchainConfig) (*Sup
 
 	superDeployment, err := deployers.DeploySuperchain(l1Host, &deployers.DeploySuperchainInput{
 		ProxyAdminOwner:            superCfg.ProxyAdminOwner,
-		ProtocolVersionsOwner:      superCfg.FinalSystemOwner,
+		ProtocolVersionsOwner:      superCfg.ProtocolVersionsOwner,
 		Guardian:                   superCfg.SuperchainConfigGuardian,
-		Paused:                     false, // TODO
+		Paused:                     superCfg.Paused,
 		RequiredProtocolVersion:    superCfg.RequiredProtocolVersion,
 		RecommendedProtocolVersion: superCfg.RecommendedProtocolVersion,
 	})
@@ -153,15 +151,15 @@ func deploySuperchainToL1(l1Host *script.Host, superCfg *SuperchainConfig) (*Sup
 	}
 
 	implementationsDeployment, err := deployers.DeployImplementations(l1Host, &deployers.DeployImplementationsInput{
-		WithdrawalDelaySeconds:          nil, // TODO
-		MinProposalSizeBytes:            nil, // TODO
-		ChallengePeriodSeconds:          nil, // TODO
-		ProofMaturityDelaySeconds:       nil, // TODO
-		DisputeGameFinalityDelaySeconds: nil, // TODO
-		Release:                         "",  // TODO
+		WithdrawalDelaySeconds:          superCfg.Implementations.FaultProof.WithdrawalDelaySeconds,
+		MinProposalSizeBytes:            superCfg.Implementations.FaultProof.MinProposalSizeBytes,
+		ChallengePeriodSeconds:          superCfg.Implementations.FaultProof.ChallengePeriodSeconds,
+		ProofMaturityDelaySeconds:       superCfg.Implementations.FaultProof.ProofMaturityDelaySeconds,
+		DisputeGameFinalityDelaySeconds: superCfg.Implementations.FaultProof.DisputeGameFinalityDelaySeconds,
+		Release:                         superCfg.Implementations.Release,
 		SuperchainConfigProxy:           superDeployment.SuperchainConfigProxy,
 		ProtocolVersionsProxy:           superDeployment.ProtocolVersionsProxy,
-		UseInterop:                      superCfg.UseInterop,
+		UseInterop:                      superCfg.Implementations.UseInterop,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to deploy Implementations contracts: %w", err)
@@ -170,19 +168,7 @@ func deploySuperchainToL1(l1Host *script.Host, superCfg *SuperchainConfig) (*Sup
 	// Collect deployment addresses
 	// This could all be automatic once we have better output-contract typing/scripting
 	return &SuperchainDeployment{
-		Implementations: Implementations{
-			L1CrossDomainMessenger:       implementationsDeployment.L1CrossDomainMessengerImpl,
-			L1ERC721Bridge:               implementationsDeployment.L1ERC721BridgeImpl,
-			L1StandardBridge:             implementationsDeployment.L1StandardBridgeImpl,
-			L2OutputOracle:               common.Address{}, // TODO
-			OptimismMintableERC20Factory: implementationsDeployment.OptimismMintableERC20FactoryImpl,
-			OptimismPortal2:              implementationsDeployment.OptimismPortalImpl, // TODO
-			SystemConfig:                 implementationsDeployment.SystemConfigImpl,
-			DisputeGameFactory:           common.Address{}, // TODO
-			// More implementations
-		},
-		SystemOwnerSafe:       common.Address{}, // TODO
-		AddressManager:        common.Address{}, // TODO
+		Implementations:       Implementations(*implementationsDeployment),
 		ProxyAdmin:            superDeployment.SuperchainProxyAdmin,
 		ProtocolVersions:      superDeployment.ProtocolVersionsImpl,
 		ProtocolVersionsProxy: superDeployment.ProtocolVersionsProxy,
@@ -200,44 +186,23 @@ func deployL2ToL1(l1Host *script.Host, superCfg *SuperchainConfig, superDeployme
 
 	output, err := deployers.DeployOPChain(l1Host, &deployers.DeployOPChainInput{
 		OpChainProxyAdminOwner: cfg.ProxyAdminOwner,
-		SystemConfigOwner:      cfg.FinalSystemOwner, // TODO
+		SystemConfigOwner:      cfg.SystemConfigOwner,
 		Batcher:                cfg.BatchSenderAddress,
 		UnsafeBlockSigner:      cfg.P2PSequencerAddress,
-		Proposer:               common.Address{}, // TODO
-		Challenger:             common.Address{}, // TODO
+		Proposer:               cfg.Proposer,
+		Challenger:             cfg.Challenger,
 		BasefeeScalar:          cfg.GasPriceOracleBaseFeeScalar,
 		BlobBaseFeeScalar:      cfg.GasPriceOracleBlobBaseFeeScalar,
 		L2ChainId:              new(big.Int).SetUint64(cfg.L2ChainID),
-		Opsm:                   common.Address{}, // TODO
+		Opsm:                   superDeployment.Opsm,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to deploy L2 OP chain: %w", err)
 	}
 
-	// TODO we still need to attach the game-types to the dispute game factory
-	// TODO we still need to do final FP owner-address transfer calls
-
-	// TODO fund the operating accounts of this L2 (proposer, batcher, challenger, etc.)
-
 	// Collect deployment addresses
 	return &L2Deployment{
-		L2Proxies: L2Proxies{
-			L1CrossDomainMessengerProxy:       output.L1CrossDomainMessengerProxy,
-			L1ERC721BridgeProxy:               output.L1ERC721BridgeProxy,
-			L1StandardBridgeProxy:             output.L1StandardBridgeProxy,
-			OptimismMintableERC20FactoryProxy: output.OptimismMintableERC20FactoryProxy,
-			OptimismPortalProxy:               output.OptimismPortalProxy,
-			SystemConfigProxy:                 output.SystemConfigProxy,
-			AnchorStateRegistryProxy:          output.AnchorStateRegistryProxy,
-			DelayedWETHProxy:                  output.DelayedWETHPermissionedGameProxy, // TODO
-			DisputeGameFactoryProxy:           output.DisputeGameFactoryProxy,
-			// special one: depends on DisputeGameFactoryProxy
-			AnchorStateRegistry: common.Address{}, // TODO broken design in OPSM
-			// Another special one, depends on L2 deploy config
-			DelayedWETH: common.Address{}, // TODO non-proxy contract
-		},
-		ProxyAdmin:      output.OpChainProxyAdmin,
-		SystemOwnerSafe: common.Address{}, // TODO
+		L2OpchainDeployment: L2OpchainDeployment(*output),
 	}, nil
 }
 

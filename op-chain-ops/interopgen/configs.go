@@ -25,13 +25,31 @@ func (c *L1Config) Check(log log.Logger) error {
 	return nil
 }
 
+type SuperFaultProofConfig struct {
+	WithdrawalDelaySeconds          *big.Int
+	MinProposalSizeBytes            *big.Int
+	ChallengePeriodSeconds          *big.Int
+	ProofMaturityDelaySeconds       *big.Int
+	DisputeGameFinalityDelaySeconds *big.Int
+}
+
+type OPSMImplementationsConfig struct {
+	Release string
+
+	FaultProof SuperFaultProofConfig
+
+	UseInterop bool // to deploy Interop implementation contracts, instead of the regular ones.
+}
+
 type SuperchainConfig struct {
 	Deployer common.Address
 
-	FinalSystemOwner common.Address
-	ProxyAdminOwner  common.Address
+	ProxyAdminOwner       common.Address
+	ProtocolVersionsOwner common.Address
 
-	UseInterop bool // to deploy Interop implementation contracts, instead of the regular ones.
+	Paused bool
+
+	Implementations OPSMImplementationsConfig
 
 	genesis.SuperchainL1DeployConfig
 }
@@ -50,9 +68,11 @@ func (c *SuperchainConfig) Check(log log.Logger) error {
 }
 
 type L2Config struct {
-	Deployer common.Address // account used to deploy contracts to L2
+	Deployer          common.Address // account used to deploy contracts to L2
+	Proposer          common.Address
+	Challenger        common.Address
+	SystemConfigOwner common.Address
 	genesis.L2InitializationConfig
-	genesis.FaultProofDeployConfig
 	Prefund map[common.Address]*big.Int
 }
 
@@ -61,12 +81,6 @@ func (c *L2Config) Check(log log.Logger) error {
 		return errors.New("missing L2 deployer address")
 	}
 	if err := c.L2InitializationConfig.Check(log); err != nil {
-		return err
-	}
-	if !c.FaultProofDeployConfig.UseFaultProofs {
-		return errors.New("must set UseFaultProofs: legacy output oracle is not supported")
-	}
-	if err := c.FaultProofDeployConfig.Check(log); err != nil {
 		return err
 	}
 	return nil

@@ -5,29 +5,26 @@ import (
 )
 
 type L1Deployment struct {
-	// preinstalls maybe?
+	// No global deployed contracts that aren't part of the superchain, yet.
 }
 
 type Implementations struct {
-	L1CrossDomainMessenger       common.Address `json:"L1CrossDomainMessenger"`
-	L1ERC721Bridge               common.Address `json:"L1ERC721Bridge"`
-	L1StandardBridge             common.Address `json:"L1StandardBridge"`
-	L2OutputOracle               common.Address `json:"L2OutputOracle"`
-	OptimismMintableERC20Factory common.Address `json:"OptimismMintableERC20Factory"`
-	OptimismPortal2              common.Address `json:"OptimismPortal2"`
-	SystemConfig                 common.Address `json:"SystemConfig"`
-
-	DisputeGameFactory common.Address `json:"DisputeGameFactory"`
+	Opsm                             common.Address `json:"OPSM"` // not proxied
+	DelayedWETHImpl                  common.Address `json:"DelayedWETH"`
+	OptimismPortalImpl               common.Address `json:"OptimismPortal"`
+	PreimageOracleSingleton          common.Address `json:"PreimageOracleSingleton"`
+	MipsSingleton                    common.Address `json:"MipsSingleton"`
+	SystemConfigImpl                 common.Address `json:"SystemConfig"`
+	L1CrossDomainMessengerImpl       common.Address `json:"L1CrossDomainMessenger"`
+	L1ERC721BridgeImpl               common.Address `json:"L1ERC721Bridge"`
+	L1StandardBridgeImpl             common.Address `json:"L1StandardBridge"`
+	OptimismMintableERC20FactoryImpl common.Address `json:"OptimismMintableERC20Factory"`
 }
 
 type SuperchainDeployment struct {
 	Implementations
 
-	// Safe that will own the Superchain contracts
-	SystemOwnerSafe common.Address `json:"SystemOwnerSafe"`
-
-	AddressManager common.Address `json:"AddressManager"`
-	ProxyAdmin     common.Address `json:"ProxyAdmin"`
+	ProxyAdmin common.Address `json:"ProxyAdmin"`
 
 	ProtocolVersions      common.Address `json:"ProtocolVersions"`
 	ProtocolVersionsProxy common.Address `json:"ProtocolVersionsProxy"`
@@ -36,33 +33,31 @@ type SuperchainDeployment struct {
 	SuperchainConfigProxy common.Address `json:"SuperchainConfigProxy"`
 }
 
-type L2Proxies struct {
-	L1CrossDomainMessengerProxy common.Address `json:"L1CrossDomainMessengerProxy"`
-	L1ERC721BridgeProxy         common.Address `json:"L1ERC721BridgeProxy"`
-	L1StandardBridgeProxy       common.Address `json:"L1StandardBridgeProxy"`
-	// L2OutputOracleProxy is no longer used or deployed
-	OptimismMintableERC20FactoryProxy common.Address `json:"OptimismMintableERC20FactoryProxy"`
-	OptimismPortalProxy               common.Address `json:"OptimismPortalProxy"`
+type L2OpchainDeployment struct {
+	OpChainProxyAdmin                 common.Address `json:"OpChainProxyAdmin"`
+	AddressManager                    common.Address `json:"AddressManager"`
+	L1ERC721BridgeProxy               common.Address `json:"L1ERC721BridgeProxy"`
 	SystemConfigProxy                 common.Address `json:"SystemConfigProxy"`
-
-	// This implementation deployment depends on DisputeGameFactoryProxy
-	AnchorStateRegistry common.Address `json:"AnchorStateRegistry"`
-	// DelayedWETH bytecode is parameterized with deploy-config data
-	DelayedWETH common.Address `json:"DelayedWETH"`
-
-	// Fault proofs; some of these don't have to be deployed per chain
-	AnchorStateRegistryProxy common.Address `json:"AnchorStateRegistryProxy"`
-	DelayedWETHProxy         common.Address `json:"DelayedWETHProxy"`
-	DisputeGameFactoryProxy  common.Address `json:"DisputeGameFactoryProxy"`
+	OptimismMintableERC20FactoryProxy common.Address `json:"OptimismMintableERC20FactoryProxy"`
+	L1StandardBridgeProxy             common.Address `json:"L1StandardBridgeProxy"`
+	L1CrossDomainMessengerProxy       common.Address `json:"L1CrossDomainMessengerProxy"`
+	// Fault proof contracts below.
+	OptimismPortalProxy                common.Address `json:"OptimismPortalProxy"`
+	DisputeGameFactoryProxy            common.Address `json:"DisputeGameFactoryProxy"`
+	DisputeGameFactoryImpl             common.Address `json:"DisputeGameFactoryImpl"`
+	AnchorStateRegistryProxy           common.Address `json:"AnchorStateRegistryProxy"`
+	AnchorStateRegistryImpl            common.Address `json:"AnchorStateRegistryImpl"`
+	FaultDisputeGame                   common.Address `json:"FaultDisputeGame"`
+	PermissionedDisputeGame            common.Address `json:"PermissionedDisputeGame"`
+	DelayedWETHPermissionedGameProxy   common.Address `json:"DelayedWETHPermissionedGameProxy"`
+	DelayedWETHPermissionlessGameProxy common.Address `json:"DelayedWETHPermissionlessGameProxy"`
 }
 
 type L2Deployment struct {
-	L2Proxies
+	L2OpchainDeployment
 
-	ProxyAdmin common.Address `json:"ProxyAdmin"`
-
-	// Safe that will own the L2 chain contracts
-	SystemOwnerSafe common.Address `json:"SystemOwnerSafe"`
+	// In the future this may contain optional extras,
+	// e.g. a Safe that will own the L2 chain contracts
 }
 
 type WorldDeployment struct {

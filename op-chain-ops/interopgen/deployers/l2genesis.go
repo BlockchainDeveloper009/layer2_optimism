@@ -3,17 +3,14 @@ package deployers
 import (
 	"fmt"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
-
 	"github.com/ethereum-optimism/optimism/op-chain-ops/genesis"
 	"github.com/ethereum-optimism/optimism/op-chain-ops/script"
+	"github.com/ethereum/go-ethereum/common"
 )
 
 var (
 	// address(uint160(uint256(keccak256(abi.encode("optimism.deployconfig"))))) - not a simple hash, due to ABI encode
-	deployConfigAddr       = common.HexToAddress("0x9568d36E291c2C4c34fa5593fcE73715abEf6F9c")
-	deploymentRegistryAddr = common.Address(crypto.Keccak256([]byte("optimism.deploymentregistry"))[12:])
+	deployConfigAddr = common.HexToAddress("0x9568d36E291c2C4c34fa5593fcE73715abEf6F9c")
 )
 
 type L1Deployments struct {

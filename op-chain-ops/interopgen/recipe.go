@@ -45,11 +45,11 @@ func (r *InteropDevRecipe) Build(addrs devkeys.Addresses) (*WorldConfig, error) 
 	if err != nil {
 		return nil, err
 	}
-	finalSystemOwner, err := addrs.Address(superchainOps(devkeys.SuperchainFinalSystemOwner))
+	superchainProxyAdmin, err := addrs.Address(superchainOps(devkeys.SuperchainProxyAdminOwner))
 	if err != nil {
 		return nil, err
 	}
-	superchainProxyAdmin, err := addrs.Address(superchainOps(devkeys.SuperchainProxyAdminOwner))
+	superchainProtocolVersionsOwner, err := addrs.Address(superchainOps(devkeys.SuperchainProtocolVersionsOwner))
 	if err != nil {
 		return nil, err
 	}
@@ -58,14 +58,33 @@ func (r *InteropDevRecipe) Build(addrs devkeys.Addresses) (*WorldConfig, error) 
 		return nil, err
 	}
 	l1Cfg.Prefund[superchainDeployer] = Ether(10_000_000)
-	l1Cfg.Prefund[finalSystemOwner] = Ether(10_000_000)
 	l1Cfg.Prefund[superchainProxyAdmin] = Ether(10_000_000)
 	l1Cfg.Prefund[superchainConfigGuardian] = Ether(10_000_000)
 	superchainCfg := &SuperchainConfig{
-		FinalSystemOwner: finalSystemOwner,
-		ProxyAdminOwner:  superchainProxyAdmin,
-		Deployer:         superchainDeployer,
-		UseInterop:       true,
+		ProxyAdminOwner:       superchainProxyAdmin,
+		ProtocolVersionsOwner: superchainProtocolVersionsOwner,
+		Deployer:              superchainDeployer,
+		Implementations: OPSMImplementationsConfig{
+			Release: "op-contracts/0.0.1",
+			FaultProof: SuperFaultProofConfig{
+				WithdrawalDelaySeconds:          big.NewInt(604800),
+				MinProposalSizeBytes:            big.NewInt(10000),
+				ChallengePeriodSeconds:          big.NewInt(120),
+				ProofMaturityDelaySeconds:       big.NewInt(12),
+				DisputeGameFinalityDelaySeconds: big.NewInt(6),
+				// Legacy config:
+				//UseFaultProofs:                  true,
+				//FaultGameAbsolutePrestate:       common.HexToHash("0x03c7ae758795765c6664a5d39bf63841c71ff191e9189522bad8ebff5d4eca98"),
+				//FaultGameMaxDepth:               50,
+				//FaultGameClockExtension:         0,
+				//FaultGameMaxClockDuration:       1200,
+				//FaultGameGenesisBlock:           0,
+				//FaultGameGenesisOutputRoot:      common.HexToHash("0xDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF"),
+				//FaultGameSplitDepth:             14,
+				//RespectedGameType:               254, // "fast" game type
+			},
+			UseInterop: true,
+		},
 		SuperchainL1DeployConfig: genesis.SuperchainL1DeployConfig{
 			RequiredProtocolVersion:    params.OPStackSupport,
 			RecommendedProtocolVersion: params.OPStackSupport,
@@ -150,9 +169,24 @@ func InteropL2DevConfig(l1ChainID, l2ChainID uint64, addrs devkeys.Addresses) (*
 	if err != nil {
 		return nil, err
 	}
+	proposer, err := addrs.Address(chainOps(devkeys.ProposerRole))
+	if err != nil {
+		return nil, err
+	}
+	challenger, err := addrs.Address(chainOps(devkeys.ChallengerRole))
+	if err != nil {
+		return nil, err
+	}
+	systemConfigOwner, err := addrs.Address(chainOps(devkeys.SystemConfigOwner))
+	if err != nil {
+		return nil, err
+	}
 
 	l2Cfg := &L2Config{
-		Deployer: deployer,
+		Deployer:          deployer,
+		Proposer:          proposer,
+		Challenger:        challenger,
+		SystemConfigOwner: systemConfigOwner,
 		L2InitializationConfig: genesis.L2InitializationConfig{
 			DevDeployConfig: genesis.DevDeployConfig{
 				FundDevAccounts: true,
@@ -220,22 +254,6 @@ func InteropL2DevConfig(l1ChainID, l2ChainID uint64, addrs devkeys.Addresses) (*
 			AltDADeployConfig: genesis.AltDADeployConfig{
 				UseAltDA: false,
 			},
-		},
-		FaultProofDeployConfig: genesis.FaultProofDeployConfig{
-			UseFaultProofs:                  true,
-			FaultGameAbsolutePrestate:       common.HexToHash("0x03c7ae758795765c6664a5d39bf63841c71ff191e9189522bad8ebff5d4eca98"),
-			FaultGameMaxDepth:               50,
-			FaultGameClockExtension:         0,
-			FaultGameMaxClockDuration:       1200,
-			FaultGameGenesisBlock:           0,
-			FaultGameGenesisOutputRoot:      common.HexToHash("0xDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF"),
-			FaultGameSplitDepth:             14,
-			FaultGameWithdrawalDelay:        604800,
-			PreimageOracleMinProposalSize:   10000,
-			PreimageOracleChallengePeriod:   120,
-			ProofMaturityDelaySeconds:       12,
-			DisputeGameFinalityDelaySeconds: 6,
-			RespectedGameType:               254, // "fast" game type
 		},
 		Prefund: make(map[common.Address]*big.Int),
 	}
