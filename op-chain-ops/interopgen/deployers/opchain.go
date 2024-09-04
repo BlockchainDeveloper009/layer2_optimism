@@ -58,7 +58,8 @@ func DeployOPChain(l1Host *script.Host, input *DeployOPChainInput) (*DeployOPCha
 	}
 	defer cleanupInput()
 
-	cleanupOutput, err := script.WithPrecompileAtAddress[*DeployOPChainOutput](l1Host, outputAddr, output)
+	cleanupOutput, err := script.WithPrecompileAtAddress[*DeployOPChainOutput](l1Host, outputAddr, output,
+		script.WithFieldSetter[*DeployOPChainOutput])
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert DeployOPChainOutput precompile: %w", err)
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/common"
 	"math/big"
 	"reflect"
 	"strings"
@@ -14,6 +15,9 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 )
+
+var setterFnSig = "set(bytes4,address)"
+var setterFnBytes4 = bytes4(setterFnSig)
 
 // precompileFunc is a prepared function to perform a method call / field read with ABI decoding/encoding.
 type precompileFunc struct {
@@ -58,6 +62,9 @@ type Precompile[E any] struct {
 
 	fieldsOnly bool
 
+	fieldSetter bool
+	settable    map[[4]byte]*reflect.Value
+
 	// abiMethods is effectively the jump-table for 4-byte ABI calls to the precompile.
 	abiMethods map[[4]byte]*precompileFunc
 }
@@ -70,6 +77,10 @@ func WithFieldsOnly[E any](p *Precompile[E]) {
 	p.fieldsOnly = true
 }
 
+func WithFieldSetter[E any](p *Precompile[E]) {
+	p.fieldSetter = true
+}
+
 // NewPrecompile wraps a Go object into a Precompile.
 // All exported fields and methods will have a corresponding ABI interface.
 // Fields with a tag `evm:"-"` will be ignored, or can override their ABI name to x with this tag: `evm:"x"`.
@@ -80,9 +91,11 @@ func WithFieldsOnly[E any](p *Precompile[E]) {
 // All precompile methods have 0 gas cost.
 func NewPrecompile[E any](e E, opts ...PrecompileOption[E]) (*Precompile[E], error) {
 	out := &Precompile[E]{
-		Precompile: e,
-		abiMethods: make(map[[4]byte]*precompileFunc),
-		fieldsOnly: false,
+		Precompile:  e,
+		abiMethods:  make(map[[4]byte]*precompileFunc),
+		fieldsOnly:  false,
+		fieldSetter: false,
+		settable:    make(map[[4]byte]*reflect.Value),
 	}
 	for _, opt := range opts {
 		opt(out)
@@ -96,6 +109,8 @@ func NewPrecompile[E any](e E, opts ...PrecompileOption[E]) (*Precompile[E], err
 	if err := out.setupFields(&elemVal); err != nil {
 		return nil, fmt.Errorf("failed to setup fields of precompile: %w", err)
 	}
+	// create setter that can handle of the fields
+	out.setupFieldSetter()
 	return out, nil
 }
 
@@ -496,7 +511,33 @@ func (p *Precompile[E]) setupStructField(fieldDef *reflect.StructField, fieldVal
 		abiSignature: methodSig,
 		fn:           fn,
 	}
+	// register field as settable
+	if p.fieldSetter && fieldDef.Type.AssignableTo(typeFor[common.Address]()) {
+		p.settable[byte4Sig] = fieldVal
+	}
 	return nil
+}
+
+func (p *Precompile[E]) setupFieldSetter() {
+	if !p.fieldSetter {
+		return
+	}
+	p.abiMethods[setterFnBytes4] = &precompileFunc{
+		goName:       "__fieldSetter___",
+		abiSignature: setterFnSig,
+		fn: func(input []byte) ([]byte, error) {
+			if len(input) != 4+20 {
+				return nil, fmt.Errorf("cannot set address field to %d bytes", len(input))
+			}
+			selector := [4]byte(input[:4])
+			v, ok := p.settable[selector]
+			if !ok {
+				return nil, fmt.Errorf("unknown address field selector 0x%x", selector)
+			}
+			v.Set(reflect.ValueOf(common.Address(input[4:])))
+			return nil, nil
+		},
+	}
 }
 
 // RequiredGas is part of the vm.PrecompiledContract interface, and all system precompiles use 0 gas.

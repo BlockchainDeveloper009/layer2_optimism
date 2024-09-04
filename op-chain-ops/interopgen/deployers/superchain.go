@@ -41,7 +41,8 @@ func DeploySuperchain(l1Host *script.Host, input *DeploySuperchainInput) (*Deplo
 	}
 	defer cleanupInput()
 
-	cleanupOutput, err := script.WithPrecompileAtAddress[*DeploySuperchainOutput](l1Host, outputAddr, output)
+	cleanupOutput, err := script.WithPrecompileAtAddress[*DeploySuperchainOutput](l1Host, outputAddr, output,
+		script.WithFieldSetter[*DeploySuperchainOutput])
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert DeploySuperchainOutput precompile: %w", err)
 	}
