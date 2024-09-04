@@ -3,6 +3,7 @@ pragma solidity 0.8.15;
 
 import { Test, Vm, console2 as console } from "forge-std/Test.sol";
 
+import { IPreimageOracle } from "src/cannon/interfaces/IPreimageOracle.sol";
 import { PreimageOracle } from "src/cannon/PreimageOracle.sol";
 import { PreimageKeyLib } from "src/cannon/PreimageKeyLib.sol";
 import { LibKeccak } from "@lib-keccak/LibKeccak.sol";
@@ -1385,7 +1386,7 @@ contract PreimageOracle_LargePreimageProposals_Test is Test {
             LibKeccak.absorb(_stateMatrix, blockSlice);
             LibKeccak.permutation(_stateMatrix);
 
-            leaves_[i] = PreimageOracle.Leaf({
+            leaves_[i] = IPreimageOracle.Leaf({
                 input: blockSlice,
                 index: uint32(i),
                 stateCommitment: keccak256(abi.encode(_stateMatrix))

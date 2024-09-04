@@ -59,7 +59,6 @@ EXCLUDE_FILES=(
     "Errors"
 
     # TODO: Interfaces that need to be fixed
-    "IPreimageOracle"
     "IOptimismMintableERC721"
     "IFaultDisputeGame"
     "IOptimismSuperchainERC20"
