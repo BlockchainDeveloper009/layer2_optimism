@@ -156,6 +156,8 @@ func (role ChainOperatorRole) String() string {
 		return "l1-fee-vault-recipient"
 	case SequencerFeeVaultRecipientRole:
 		return "sequencer-fee-vault-recipient"
+	case SystemConfigOwner:
+		return "system-config-owner"
 	default:
 		return fmt.Sprintf("unknown-operator-%d", uint64(role))
 	}

@@ -33,6 +33,7 @@ type DeployImplementationsOutput struct {
 	L1ERC721BridgeImpl               common.Address
 	L1StandardBridgeImpl             common.Address
 	OptimismMintableERC20FactoryImpl common.Address
+	DisputeGameFactoryImpl           common.Address
 }
 
 type DeployImplementationsScript struct {

@@ -10,15 +10,16 @@ type L1Deployment struct {
 
 type Implementations struct {
 	Opsm                             common.Address `json:"OPSM"` // not proxied
-	DelayedWETHImpl                  common.Address `json:"DelayedWETH"`
-	OptimismPortalImpl               common.Address `json:"OptimismPortal"`
+	DelayedWETHImpl                  common.Address `json:"DelayedWETHImpl"`
+	OptimismPortalImpl               common.Address `json:"OptimismPortalImpl"`
 	PreimageOracleSingleton          common.Address `json:"PreimageOracleSingleton"`
 	MipsSingleton                    common.Address `json:"MipsSingleton"`
-	SystemConfigImpl                 common.Address `json:"SystemConfig"`
-	L1CrossDomainMessengerImpl       common.Address `json:"L1CrossDomainMessenger"`
-	L1ERC721BridgeImpl               common.Address `json:"L1ERC721Bridge"`
-	L1StandardBridgeImpl             common.Address `json:"L1StandardBridge"`
-	OptimismMintableERC20FactoryImpl common.Address `json:"OptimismMintableERC20Factory"`
+	SystemConfigImpl                 common.Address `json:"SystemConfigImpl"`
+	L1CrossDomainMessengerImpl       common.Address `json:"L1CrossDomainMessengerImpl"`
+	L1ERC721BridgeImpl               common.Address `json:"L1ERC721BridgeImpl"`
+	L1StandardBridgeImpl             common.Address `json:"L1StandardBridgeImpl"`
+	OptimismMintableERC20FactoryImpl common.Address `json:"OptimismMintableERC20FactoryImpl"`
+	DisputeGameFactoryImpl           common.Address `json:"DisputeGameFactoryImpl"`
 }
 
 type SuperchainDeployment struct {
